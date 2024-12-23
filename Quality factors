@@ -1,0 +1,46 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, avg, rank, when
+from pyspark.sql.window import Window
+
+# Initialize SparkSession
+spark = SparkSession.builder.appName("QualityFactor").getOrCreate()
+
+# Load data from CSV (replace with your actual data source)
+df = spark.read.csv("stock_data.csv", header=True, inferSchema=True)
+
+# Calculate z-scores for each variable
+def zscore(c):
+    return (col(c) - avg(col(c)).over(Window.partitionBy("year"))) / stddev(col(c)).over(Window.partitionBy("year"))
+
+for col_name in ["gpoa", "roe", "roa", "cfoa", "gmar", "acc", "bab", "lev", "o", "z", "evol", "eiss", "diss", "npop"]:
+    df = df.withColumn(f"z{col_name}", zscore(col_name))
+
+# Calculate scores for each dimension
+df = df.withColumn("Profitability", avg("zgpoa", "zroe", "zroa", "zcfoa", "zgmar", "zacc").over(Window.partitionBy("year")))
+df = df.withColumn("Growth", avg("zΔgpoa", "zΔroe", "zΔroa", "zΔcfoa", "zΔgmar").over(Window.partitionBy("year")))
+df = df.withColumn("Safety", avg("zbab", "zlev", "zo", "zz", "zevol").over(Window.partitionBy("year")))
+df = df.withColumn("Payout", avg("zeiss", "zdiss", "znpop").over(Window.partitionBy("year")))
+
+# Calculate overall Quality score
+df = df.withColumn("Quality", avg("Profitability", "Growth", "Safety", "Payout").over(Window.partitionBy("year")))
+
+# Rank stocks by Quality score
+df = df.withColumn("QualityRank", rank().over(Window.partitionBy("year").orderBy(col("Quality").desc())))
+
+# Define Quality and Junk portfolios
+df = df.withColumn("Portfolio", when(col("QualityRank") <= df.count() * 0.1, "Quality").when(col("QualityRank") >= df.count() * 0.9, "Junk").otherwise("Neutral"))
+
+# Calculate factor returns (replace with your actual return calculation)
+df = df.withColumn("Return", col("price") - col("prev_price"))
+
+# Calculate QMJ factor returns
+qmj_returns = df.groupBy("year", "month").agg(
+    avg(when(col("Portfolio") == "Quality", col("Return")).otherwise(0)).alias("QualityReturn"),
+    avg(when(col("Portfolio") == "Junk", col("Return")).otherwise(0)).alias("JunkReturn")
+).withColumn("QMJ", col("QualityReturn") - col("JunkReturn"))
+
+# Show QMJ returns
+qmj_returns.show()
+
+# Stop SparkSession
+spark.stop()
