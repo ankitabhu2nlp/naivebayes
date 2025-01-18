@@ -1,0 +1,113 @@
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from hurst import compute_Hc
+
+def calculate_macro_factor(macro_data):
+  """
+  Calculates the macroeconomic factor (Mf) using a DSGE model (simplified example).
+
+  Analogy to wind: This is like calculating the geostrophic wind (Vg), 
+  which represents the large-scale atmospheric pressure gradients 
+  that drive wind direction.
+
+  Args:
+    macro_data: A pandas DataFrame with macroeconomic variables 
+                 (e.g., interest rates, inflation, GDP growth).
+
+  Returns:
+    A float representing the macroeconomic factor.
+  """
+  # In a real implementation, you'd use a DSGE model here.
+  # This is a simplified example using a weighted average.
+  weights = {
+      'interest_rate': 0.4,
+      'inflation': 0.3,
+      'gdp_growth': 0.3,
+  }
+  macro_factor = sum([macro_data[var][-1] * weights[var] for var in weights])
+  return macro_factor
+
+def calculate_stock_volatility(stock_data):
+  """
+  Calculates the stock-specific volatility (Vs).
+
+  Analogy to wind: This is like calculating the wind speed (Vp) due to 
+  local pressure gradients and terrain effects, which can cause 
+  deviations from the geostrophic wind.
+
+  Args:
+    stock_data: A pandas DataFrame with 'close' prices for the stock.
+
+  Returns:
+    A float representing the stock volatility (e.g., standard deviation of returns).
+  """
+  stock_data['returns'] = stock_data['close'].pct_change()
+  volatility = stock_data['returns'].std()
+  return volatility
+
+def calculate_hurst_exponent(data, column='close'):
+  """
+  Calculates the Hurst exponent of a time series.
+
+  Analogy to wind: This is like assessing the stability of the 
+  atmospheric conditions. A persistent wind pattern (H > 0.5) is 
+  analogous to a trending market, while a mean-reverting pattern 
+  (H < 0.5) is analogous to a market correction.
+
+  Args:
+    data: A pandas DataFrame with the time series data.
+    column: The name of the column containing the time series.
+
+  Returns:
+    A float representing the Hurst exponent.
+  """
+  H, c, _ = compute_Hc(data[column], kind='change', simplified=True)
+  return H
+
+def predict_stock_price_hurst(stock_data, macro_data, Rm):
+  """
+  Predicts the stock price using the adapted wind direction equation with Hurst exponent.
+
+  Analogy to wind: This combines the "geostrophic wind" (macroeconomic factors) 
+  and "local wind effects" (stock volatility) to predict the "direction" 
+  (price movement) of the stock, with the Hurst exponent acting as a 
+  modifier based on market regime.
+
+  Args:
+    stock_data: A pandas DataFrame with 'close' prices for the stock.
+    macro_data: A pandas DataFrame with macroeconomic variables.
+    Rm: Sensitivity of the stock to macroeconomic factors.
+
+  Returns:
+    A float representing the predicted stock price.
+  """
+  St = stock_data['close'][-1]  # Current stock price
+  Mf = calculate_macro_factor(macro_data)
+  Vs = calculate_stock_volatility(stock_data)
+  sigma_s = calculate_hurst_exponent(stock_data)  # Hurst exponent as sigma_s
+
+  # Predicted stock price (simplified, without error term)
+  St_plus_1 = St * np.exp((Mf * Rm) + (Vs * sigma_s))
+  return St_plus_1
+
+# Example usage:
+# Assuming you have DataFrames named 'stock_df' and 'macro_df'
+
+# Estimate Rm using linear regression (simplified example)
+X = macro_df[['interest_rate', 'inflation', 'gdp_growth']]
+y = stock_df['returns']
+model = LinearRegression().fit(X, y)
+Rm = model.coef_.mean()  # Average coefficient as a proxy for Rm
+
+# Predict the stock price using Hurst exponent
+predicted_price_hurst = predict_stock_price_hurst(stock_df, macro_df, Rm)
+
+print(f"Predicted stock price (with Hurst exponent): {predicted_price_hurst}")
+
+Key Analogies:
+ * Macroeconomic Factor (Mf) <=> Geostrophic Wind (Vg): Both represent the dominant force driving the overall direction. In wind, it's the pressure gradient; in stocks, it's the macroeconomic conditions.
+ * Stock Volatility (Vs) <=> Local Wind Effects (Vp): Both represent deviations and fluctuations caused by local factors. In wind, it's terrain and friction; in stocks, it's company-specific news or events.
+ * Hurst Exponent <=> Atmospheric Stability:  The Hurst exponent provides insights into market regimes, similar to how atmospheric stability influences wind patterns.
+ * Stock Price Prediction <=> Wind Direction Prediction:  Both involve combining the dominant force and local variations to predict the final outcome (direction of wind or movement of stock price).
+This code incorporates the analogies with wind directly into the function docstrings, providing a clearer understanding of how the model relates to the original wind direction equation.
